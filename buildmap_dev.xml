@@ -1,0 +1,45 @@
+<tool id="buildmap_dev" name="Mapbuilder_beta" version="1.0.0">
+  <description>Under development</description>
+  <command interpreter="python">
+        buildmap_dev.py -i $infile1 -j $infile2 -m $markers -o $output1 -l $output2 -e $operation -r $recomb $doupd -q $output3 -G
+  </command>
+        <inputs>
+                <param name="infile1" type="data" format="txt" label="Phased genotypes"/>
+                <param name="operation" type="select" label="Operation">
+			<option value="None">Deafault</option>
+                	<option value="re">Relocate markers in phased file</option>
+			<option value="add">Add new markers to the phased file</option>
+			<option value="calc">Calculate recombinations in current map</option>
+                </param>
+                <param name="infile2" type="data" format="txt" label="Genotypes for new markers" optional="true"/>
+                <param name="markers" type="data" format="txt" label="Order of new markers for insertion" optional="true"/>
+                <param name="recomb" type="float" size="7" value="0" label="Maximum recombination value to insert a marker"/>
+                <param name="doupd" type="select" label="Update anchor map after each change">
+                	<option value="">No</option>
+                        <option value="-d">Yes</option>
+                </param>
+        </inputs>
+        <outputs>
+                <data name="output1" format="tabular"/>
+                <data name="output2" format="tabular"/>
+                <data name="output3" format="txt"/>
+        </outputs>
+        <help>
+
+**Updates**
+
+2013/05/28
+
+Added option to select how the program is run, 'default' picks operation based on number of input files.
+
+2013/05/27
+
+User can choose if phase information should be updated after adding each new marker.
+
+When relocating one map, markers are only moved once.
+
+Maximum recombination can be used to limit if badly fitting markers are placed.
+
+
+        </help>
+</tool>
