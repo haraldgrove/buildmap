@@ -1,6 +1,7 @@
 #! /usr/bin/env python
 # Main input: Phased genotypes
 #             Genotypes for new markers to place
+# Reads pedigree and marker information from the phased genotypes file
 #
 # Harald Grove (c) 2010
 
@@ -14,14 +15,12 @@ class BuildMap(object):
     """
 
     def __init__(self, options):
-        self.ped = self.readPedigree()
-        self.readGenotypes(options.phased)
-        self.readGenotypes(options.newsnp)
-        self.newmark = self.readMarkers(options)
-        if options.logfile:
-            self.flog = open(options.logfile, 'w')
-        else:
-            self.flog = None
+        self.ped = {}
+        self.offspring = []
+        self.readPedigree(options.phased)
+        self.gen1, self.mark1 = self.readGenotypes(options.phased)
+        self.gen2, self.mark2 = self.readGenotypes(options.newsnp)
+        self.flog = open(options.logfile, 'w')
         self.outmat = options.outdist
         self.outlist = options.outmark
         self.phases = {}
@@ -29,93 +28,81 @@ class BuildMap(object):
         self.mphase = {}
         self.moved = {}
         self.v = options.verbose
-        self.op = 're'
-        self.animlist = self.ped.getAnimals()
+        self.op = options.op
         self.reclim = float(options.reclim)
 
     def readGenotypes(self, infile):
-        """ Reads in genotypes from the Geno-format
+        """
+        Reads in genotypes from a Genotype file
+        :param infile: Genotype file, first line must be '# mark1 mark2 ...'
+        :return: gen1, genotypes as numpy; mark1, markers as list
         """
         fin = open(infile,'r')
         row = 0
         for line in fin:
             if line.startswith('#'):
                 l = line.strip().split()
-                self.mark1 = l[1:]
-                self.gen1 = np.zeros(len(self.ped),len(self.mark1)*2)
+                mark1 = l[1:]
+                gen1 = np.zeros(len(self.ped),len(mark1)*2)
                 continue
             l = line.strip().split()
-            self.gen1[row,:] = l[3:]
+            try:
+                gen1[row,:] = l[3:]
+            except:
+                raise Exception("Missing header row with marker names")
             row += 1
-            
+        return gen1, mark1
 
-
-    def readMarkers(self, options):
-        try:
-            open(options.markers, 'r')  # Checks if there is a marker file
-            markers = libMark.Mark(options.markers)
-        except (IOError, TypeError):
-            markers = self.c2.getMarkers()
-        return markers
-
-    def readPedigree(self, options):
-        try:
-            open(options.pedigree, 'r')  # Checks if there is a pedigree file
-            pedigree = libPed.Ped(options.pedigree)
-        except (IOError, TypeError):
-            pedigree = self.c1.getPed()
-        return pedigree
+    def readPedigree(self, infile):
+        """
+        Reads a genotype file and extract the pedigree from the first 3 columns
+        :param infile:
+        :return: None, populates self.ped
+        """
+        fin = open(infile,'r')
+        rank = 0
+        for line in fin:
+            if line.startswith('#'):
+                continue
+            l = line.strip().split(None,3)
+            try:
+                name, father, mother = l[0], l[1], l[2]
+            except IndexError:
+                continue
+            self.ped[name] = {'father':father,'mother':mother,'rank':rank}
+            if father != '0' or mother != '0':
+                self.offspring.append(name)
+            rank += 1
 
     def findPhase(self, animal=''):
-        """ Generates i/o phase
         """
-        if self.v: print
-        "findPhase"
+        Schedules all or one animal for phase detection
+        :param animal: the animal to generate phase for or leave empty for phasing all
+        :return: self.phases, populates with phaseinfo
+        """
         if animal == '':
-            for family in self.ped.getFamilies():
-                for animal in self.ped.getFamilyMembers(family):
-                    sire, dam = self.ped.getSire(animal), self.ped.getDam(animal)
-                    if sire == '0' and dam == '0': continue
-                    self.setPhase(animal, sire, dam)
-                    self.impPhase(animal)
-            self.setMarkerPhase()
+            for animal in self.offspring:
+                father, mother = self.ped[animal]['father'], self.ped[animal]['mother']
+                self.setPhase(animal, father, mother)
         else:
-            sire, dam = self.ped.getSire(animal), self.ped.getDam(animal)
-            if sire == '0' and dam == '0': return
-            self.setPhase(animal, sire, dam)
-            self.impPhase(animal)
+            father, mother = self.ped[animal]['father'], self.ped[animal]['mother']
+            self.setPhase(animal, father, mother)
 
     def setPhase(self, animal, sire, dam):
-        """ Finds phase for offsprings haplotype 'p' against parents haplotypes 'si' and 'so'
         """
-        if self.v: print
-        "setPhase"
-        markers = self.oldlist
-        if animal not in self.phases: self.phases[animal] = [['-'] * len(markers), ['-'] * len(markers)]
-        for ind, marker in enumerate(markers):
-            try:
-                [aI, aO] = self.c1[animal, marker]
-            except:
-                [aI, aO] = self.c2[animal, marker]
-            if aI == '0' and aO == '0': continue
-            try:
-                [sI, sO] = self.c1[sire, marker]
-            except KeyError:
-                [sI, sO] = ['0', '0']
-            try:
-                [dI, dO] = self.c1[dam, marker]
-            except KeyError:
-                [dI, dO] = ['0', '0']
-            if sI != sO and '0' not in sI + sO:
-                if aI == sI:
-                    self.phases[animal][0][ind] = 'i'
-                elif aI == sO:
-                    self.phases[animal][0][ind] = 'o'
-            if dI != dO and not '0' in dI + dO:
-                if aO == dI:
-                    self.phases[animal][1][ind] = 'i'
-                elif aO == dO:
-                    self.phases[animal][1][ind] = 'o'
+
+        :param animal:
+        :param sire:
+        :param dam:
+        :return:
+        """
+        row = self.ped[animal]['rank']
+        angen = self.gen1[row,:]
+        row = self.ped[father]['rank']
+        fagen = self.gen1[row,:]
+        row = self.gen1[mother]['rank']
+        mogen = self.gen1[row,:]
+        
 
     def impPhase(self, animal):
         """ Expands phaseinformation to include uninformative sites
@@ -475,32 +462,14 @@ def main():
     parser.add_argument("-q", dest="outdist", help="Distance matrix")
     parser.add_argument("-l", dest="logfile", help="Log file")
     parser.add_argument("-e", dest="operation", help="Operation:[re/add/calc]", default="add")
-    parser.add_argument("-r", dest="reclim", help="Recombination limit", default="0")
-    parser.add_argument("-p", dest="pedigree", help="Pedigree")
-    parser.add_argument("-m", dest="markers", help="Order of selection for new markers")
-    parser.add_argument("-d", dest="update", action="store_true", help="Updates anchor map after placing new marker",
-                      default=False)
     parser.add_argument("-v", dest="verbose", action="store_true", help="Prints runtime info", default=False)
-    parser.add_argument("-G", dest="galaxy", action="store_true", help="Script is being run from galaxy", default=False)
     args = parser.parse_args()
     # Initiate the object, read in phased genotype data, new genotypes, pedigree
     imp = BuildMap(args)
-    runit = True
-    count = 0
-    while runit:
-        imp.findPhase()
-        imp.setHaplo()
-        if options.operation == 're':
-            pass
-            #runit = imp.relocateMarkers(options.update)
-        elif options.operation == 'add':
-            runit = imp.addMarkers(options.update)
-        elif options.operation == 'calc':
-            pass
-            #runit = imp.calcRecomb(options)
-        count += 1
-    print
-    if options.operation != 'calc': imp.createNewList(options)
+    imp.findPhase()
+    imp.setHaplo()
+    if options.operation == 'add':
+        imp.addMarkers(options.update)
 
 
 if __name__ == '__main__':
