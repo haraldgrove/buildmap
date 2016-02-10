@@ -23,14 +23,9 @@ class BuildMap(object):
         self.flog = open(options.logfile, 'w')
         self.outmat = options.outdist
         self.outlist = options.outmark
-        self.phases = {}
-        self.impPhases = {}
-        self.mphase = {}
-        self.moved = {}
+        self.phases = {0:np.zeros((len(ped),len(self.mark1)))}
         self.v = options.verbose
-        self.op = options.op
-        self.reclim = float(options.reclim)
-
+        
     def readGenotypes(self, infile):
         """
         Reads in genotypes from a Genotype file
@@ -39,18 +34,19 @@ class BuildMap(object):
         """
         fin = open(infile,'r')
         row = 0
+        gen1 = {}
         for line in fin:
             if line.startswith('#'):
                 l = line.strip().split()
                 mark1 = l[1:]
-                gen1 = np.zeros(len(self.ped),len(mark1)*2)
                 continue
             l = line.strip().split()
-            try:
-                gen1[row,:] = l[3:]
-            except:
-                raise Exception("Missing header row with marker names")
+            gen1[l[0]] = [l[g]+l[l[g+1]] for g in range(3,len(l),2)]
             row += 1
+        try:
+            len(mark1)
+        except:
+            raise Exception("Missing header line in file %s" % infile)
         return gen1, mark1
 
     def readPedigree(self, infile):
@@ -88,21 +84,43 @@ class BuildMap(object):
             father, mother = self.ped[animal]['father'], self.ped[animal]['mother']
             self.setPhase(animal, father, mother)
 
-    def setPhase(self, animal, sire, dam):
+    def setPhase(self, animal, father, mother):
         """
 
         :param animal:
-        :param sire:
-        :param dam:
+        :param father:
+        :param mother:
         :return:
         """
         row = self.ped[animal]['rank']
-        angen = self.gen1[row,:]
-        row = self.ped[father]['rank']
-        fagen = self.gen1[row,:]
-        row = self.gen1[mother]['rank']
-        mogen = self.gen1[row,:]
-        
+        angen = self.gen1[animal]
+        fagen = self.gen1[father]
+        mogen = self.gen1[mother]
+        for i,ga in enumerate(angen):
+            fa = fagen[i]
+            ma = mogen[i]
+            if fa[0] != fa[1]:
+                if ga[0] == fa[0]:
+                    self.phases[0][row,i] = -1
+                elif ga[0] == fa[1]:
+                    self.phases[0][row,i] = 1
+                else:
+                    raise Exception("Mendelian error between offspring %s and father %s [%s,%s] != [%s]"
+                                    % (animal,father,ga[0],ga[1],fa[0]))
+            else:
+                self.phases[0][row,i] = 0
+            if ma[0] != ma[1]:
+                if ga[0] == ma[0]:
+                    self.phases[1][row,i] = -1
+                elif ga[0] == ma[1]:
+                    self.phases[1][row,i] = 1
+                else:
+                    raise Exception("Mendelian error between offspring %s and mother %s [%s,%s] != [%s]"
+                                    % (animal,mother,ga[0],ga[1],ma[1]))
+            else:
+                self.phases[1][row,i] = 0
+            
+
 
     def impPhase(self, animal):
         """ Expands phaseinformation to include uninformative sites
